@@ -19,8 +19,8 @@
     <dependencies>
         <!-- 2. 依赖 agent-guardian-core 核心抽象模块 -->
         <dependency>
-            <groupId>io.agentguardian</groupId>
-            <artifactId>agent-guardian-core</artifactId>
+            <groupId>ascion.agent.aegis</groupId>
+            <artifactId>agent-aegis-core</artifactId>
         </dependency>
 
         <!-- 3. Spring Boot 自动装配核心基础包 -->
@@ -46,6 +46,7 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
+            <version>3.2.1</version>
             <optional>true</optional>
         </dependency>
 
