@@ -51,7 +51,7 @@ jobs:
       # 修改 Maven 版本
       - name: Set Maven Version
         run: |
-          ./mvnw \
+          mvn \
             --batch-mode \
             versions:set \
             -DnewVersion=${{ steps.version.outputs.version }} \
@@ -60,7 +60,7 @@ jobs:
       # 编译 + 测试
       - name: Build
         run: |
-          ./mvnw \
+          mvn \
             --batch-mode \
             clean \
             verify
@@ -68,7 +68,7 @@ jobs:
       # 发布 core + starter
       - name: Publish
         run: |
-          ./mvnw \
+          mvn \
             --batch-mode \
             deploy \
             -DskipTests
