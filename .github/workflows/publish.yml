@@ -1,0 +1,76 @@
+name: Publish Maven Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Build and Publish
+    runs-on: ubuntu-latest
+
+    steps:
+      # 拉取代码
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # JDK
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+          # Maven GitHub Packages 认证
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      # 获取 tag 版本
+      - name: Get Version
+        id: version
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          echo "Version: $VERSION"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version: $VERSION"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # 修改 Maven 版本
+      - name: Set Maven Version
+        run: |
+          ./mvnw \
+            --batch-mode \
+            versions:set \
+            -DnewVersion=${{ steps.version.outputs.version }} \
+            -DgenerateBackupPoms=false
+
+      # 编译 + 测试
+      - name: Build
+        run: |
+          ./mvnw \
+            --batch-mode \
+            clean \
+            verify
+
+      # 发布 core + starter
+      - name: Publish
+        run: |
+          ./mvnw \
+            --batch-mode \
+            deploy \
+            -DskipTests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
