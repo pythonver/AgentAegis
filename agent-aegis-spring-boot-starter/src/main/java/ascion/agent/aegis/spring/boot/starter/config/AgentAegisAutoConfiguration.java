@@ -12,8 +12,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.EnableAspectJAutoProxy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import javax.sql.DataSource;
 
@@ -24,6 +26,7 @@ import javax.sql.DataSource;
 @AutoConfigureAfter({DataSourceAutoConfiguration.class, JdbcTemplateAutoConfiguration.class})
 @ConditionalOnProperty(prefix = "agent-aegis", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(AgentAegisProperties.class)
+@EnableAspectJAutoProxy(exposeProxy = true)
 public class AgentAegisAutoConfiguration {
 
     // =========================================================================
@@ -50,6 +53,7 @@ public class AgentAegisAutoConfiguration {
             name = "repository-type",
             havingValue = "JDBC"
     )
+    @EnableConfigurationProperties(AgentAegisProperties.class)
     public static class JdbcRepositoryConfiguration {
 
         /**
@@ -63,12 +67,13 @@ public class AgentAegisAutoConfiguration {
                 matchIfMissing = true // 未明确指定模式时，默认生效该分支
         )
         public JdbcTemplate inheritJdbcTemplate(ObjectProvider<DataSource> dataSourceProvider,
-                                                ObjectProvider<JdbcTemplate> jdbcTemplateProvider) {
-            // 1. 优先复用宿主默认 JdbcTemplate
-            JdbcTemplate jdbcTemplate = jdbcTemplateProvider.getIfAvailable();
-
-            if (jdbcTemplate != null) {
-                return jdbcTemplate;
+                                                ApplicationContext applicationContext) {
+            // 1. 获取容器中除了 agentAegisJdbcTemplate 以外的所有 JdbcTemplate 类型 Bean
+            String[] beanNames = applicationContext.getBeanNamesForType(JdbcTemplate.class);
+            for (String beanName : beanNames) {
+                if (!"agentAegisJdbcTemplate".equals(beanName)) {
+                    return applicationContext.getBean(beanName, JdbcTemplate.class);
+                }
             }
 
             // 2. 没有 JdbcTemplate，则使用宿主默认 DataSource

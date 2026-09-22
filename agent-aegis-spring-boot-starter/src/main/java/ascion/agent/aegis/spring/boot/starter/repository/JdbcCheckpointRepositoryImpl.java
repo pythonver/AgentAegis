@@ -1,10 +1,10 @@
 package ascion.agent.aegis.spring.boot.starter.repository;
 
-import ascion.agent.aegis.core.repository.CheckpointRepository;
-import ascion.agent.aegis.core.model.StepStatus;
-import ascion.agent.aegis.core.model.TaskStatus;
 import ascion.agent.aegis.core.model.Checkpoint;
+import ascion.agent.aegis.core.model.StepStatus;
 import ascion.agent.aegis.core.model.TaskContext;
+import ascion.agent.aegis.core.model.TaskStatus;
+import ascion.agent.aegis.core.repository.CheckpointRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;

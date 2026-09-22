@@ -1,9 +1,9 @@
 package ascion.agent.aegis.spring.boot.starter;
 
-import ascion.agent.aegis.core.model.StepStatus;
-import ascion.agent.aegis.core.model.TaskStatus;
 import ascion.agent.aegis.core.model.Checkpoint;
+import ascion.agent.aegis.core.model.StepStatus;
 import ascion.agent.aegis.core.model.TaskContext;
+import ascion.agent.aegis.core.model.TaskStatus;
 import ascion.agent.aegis.spring.boot.starter.repository.JdbcCheckpointRepositoryImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

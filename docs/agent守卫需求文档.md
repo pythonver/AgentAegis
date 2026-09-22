@@ -90,7 +90,7 @@
 #### FR-2.2 步骤自动拦截与历史结果回放 (Interceptor & Replay)
 
 * **需求描述**：
-在触发带有 `@AgentStep` 的方法前，切面必须先检索当前 `taskId` + `stepName` 的历史 Checkpoint 状态，决定是否真正执行该方法。
+在触发带有 `@AgentStep` 的方法前，切面必须先检索当前 `taskId` + `name` 的历史 Checkpoint 状态，决定是否真正执行该方法。
 * **执行分支**：
 * **分支 A（未完成/无记录）**：如果 DB 中无记录或状态为 `FAILED`/`RUNNING`，则正常放行执行业务方法体。
 * **分支 B（已成功）**：如果 DB 中记录状态为 `SUCCESS`，切面**直接阻止方法体真正执行**（阻止网络请求与底层计算），将 `output_json` 反序列化为该方法的返回类型对象，并直接返回。
@@ -145,7 +145,7 @@
 中间件需要在 Spring 启动阶段感知所有被 `@AgentStep` 标注的方法，以便在进行任务恢复或 API 触发重试时能够找到对应的方法进行反射调用。
 * **实现规格**：
 * 实现 `BeanPostProcessor` 接口，在 `postProcessAfterInitialization` 阶段扫描每个 Bean 的 Class 定义。
-* 解析带有 `@AgentStep` 的 Method，将其注册进内存映射表：`Map<String, StepMethodInvocation>`，其中 Key 为 `stepName`，Value 包含 `Object targetBean` 与 `Method method`。
+* 解析带有 `@AgentStep` 的 Method，将其注册进内存映射表：`Map<String, StepMethodInvocation>`，其中 Key 为 `name`，Value 包含 `Object targetBean` 与 `Method method`。
 
 
 

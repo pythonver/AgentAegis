@@ -23,7 +23,7 @@ import java.util.Set;
 
 @Aspect
 @Component
-@Order(1)
+@Order(200)
 public class AgentRetryAspect {
 
     private static final Logger log = LoggerFactory.getLogger(AgentRetryAspect.class);
