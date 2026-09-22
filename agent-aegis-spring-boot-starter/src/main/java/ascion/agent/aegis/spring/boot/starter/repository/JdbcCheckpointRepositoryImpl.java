@@ -38,8 +38,10 @@ public class JdbcCheckpointRepositoryImpl implements CheckpointRepository {
         }catch (Exception e) {
             taskContext = new TaskContext();
         }
-
+                taskContext.setInputPayload(rs.getString("input_payload"));
+                taskContext.setOutputPayload(rs.getString("output_payload"));
         taskContext.setTaskId(rs.getString("task_id"));
+        taskContext.setName(rs.getString("name"));
         taskContext.setStatus(TaskStatus.valueOf(rs.getString("status")));
         Timestamp createdAt = rs.getTimestamp("created_at");
         Timestamp updatedAt = rs.getTimestamp("updated_at");
@@ -78,17 +80,24 @@ public class JdbcCheckpointRepositoryImpl implements CheckpointRepository {
             Optional<TaskContext> existing = findTaskById(context.getTaskId());
 
             if (existing.isPresent()) {
-                String updateSql = "UPDATE agent_guardian_task SET status = ?, metadata_json = ?, updated_at = ? WHERE task_id = ?";
+                String updateSql = "UPDATE agent_guardian_task SET status = ?, input_payload = ?, output_payload = ?, retries = ?, metadata_json = ?, updated_at = ? WHERE task_id = ?";
                 jdbcTemplate.update(updateSql,
                         context.getStatus().name(),
+                        context.getInputPayload(),
+                        context.getOutputPayload(),
+                        context.getRetries(),
                         metadataJson,
                         Timestamp.from(context.getUpdatedAt()),
                         context.getTaskId());
             } else {
-                String insertSql = "INSERT INTO agent_guardian_task (task_id, status, metadata_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)";
+                String insertSql = "INSERT INTO agent_guardian_task (task_id, name, status, input_payload, output_payload, retries, metadata_json, created_at, updated_at) VALUES (?,?,?,? ,?, ?, ?, ?, ?)";
                 jdbcTemplate.update(insertSql,
                         context.getTaskId(),
+                        context.getName(),
                         context.getStatus().name(),
+                        context.getInputPayload(),
+                        context.getOutputPayload(),
+                        context.getRetries(),
                         metadataJson,
                         Timestamp.from(context.getCreatedAt()),
                         Timestamp.from(context.getUpdatedAt()));
@@ -100,7 +109,7 @@ public class JdbcCheckpointRepositoryImpl implements CheckpointRepository {
 
     @Override
     public Optional<TaskContext> findTaskById(String taskId) {
-        String sql = "SELECT task_id, status, metadata_json, created_at, updated_at FROM agent_guardian_task WHERE task_id = ?";
+        String sql = "SELECT task_id, name, status, input_payload, output_payload, retries, metadata_json, created_at, updated_at FROM agent_guardian_task WHERE task_id = ?";
 
         try {
             TaskContext taskContext = jdbcTemplate.queryForObject(sql, taskContextRowMapper, taskId);
@@ -162,7 +171,7 @@ public class JdbcCheckpointRepositoryImpl implements CheckpointRepository {
     @Override
     public List<Checkpoint> listCheckpoints(String taskId) {
         String sql = "SELECT task_id, step_name, status, input_payload, output_payload, exception_stack, execution_time_ms, created_at, updated_at " +
-                "FROM agent_guardian_checkpoint WHERE task_id = ? ORDER BY created_at ASC";
+                "FROM agent_guardian_checkpoint WHERE task_id = ? ORDER BY created_at";
         return jdbcTemplate.query(sql, checkpointRowMapper, taskId);
     }
 }

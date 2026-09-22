@@ -13,9 +13,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -27,6 +25,7 @@ import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static ascion.agent.aegis.spring.boot.starter.utils.SelfInvocationDiagnosisUtil.checkSelfInvocationDiagnosis;
 import static ascion.agent.aegis.spring.boot.starter.utils.SerializeUtil.safeSerialize;
 import static ascion.agent.aegis.spring.boot.starter.utils.StackTraceUtil.getStackTraceAsString;
 
@@ -69,6 +68,7 @@ public class AgentStepAspect {
                 return null;
             }
 
+
             String outputPayload = checkpoint.get().getOutputPayload();
             //
             if (!StringUtils.hasText(outputPayload)) {
@@ -106,16 +106,16 @@ public class AgentStepAspect {
         // 超时控制
         long timeout = agentStep.timeout();
         if (timeout <= 0) {
-            return executeAndSave(pjp, agentStep, build);
+            return proceedDirectly(pjp, agentStep, build);
         }
 
-        return executeSync(pjp, agentStep, build, stepName);
+        return proceedWithTimeout(pjp, agentStep, build, stepName);
     }
 
     /**
      * 无超时控制时的普通执行流程
      */
-    private Object executeAndSave(ProceedingJoinPoint pjp, AgentStep agentStep, Checkpoint build) throws Throwable {
+    private Object proceedDirectly(ProceedingJoinPoint pjp, AgentStep agentStep, Checkpoint build) throws Throwable {
         Instant start = Instant.now();
         try {
             Object result = pjp.proceed();
@@ -138,7 +138,7 @@ public class AgentStepAspect {
         }
     }
 
-    private Object executeSync(ProceedingJoinPoint pjp, AgentStep agentStep, Checkpoint build, String stepName) throws Throwable {
+    private Object proceedWithTimeout(ProceedingJoinPoint pjp, AgentStep agentStep, Checkpoint build, String stepName) throws Throwable {
 
         long timeout = agentStep.timeout();
         // 标记任务是否中断
@@ -212,46 +212,5 @@ public class AgentStepAspect {
             throw e.getCause() != null ? e.getCause() : e;
         }
     }
-    /**
-     * 诊断当前方法调用是否可能存在 Spring AOP 自调用失效风险
-     */
-    private void checkSelfInvocationDiagnosis(ProceedingJoinPoint pjp) {
-        // 1. 只有在处于 @AgentWorkflow 的 Task 上下文中才需要诊断
-        if (TaskContextHolder.getContext() == null) {
-            return;
-        }
 
-        try {
-            // 2. 尝试获取当前 Spring 容器中的代理对象
-            Object currentProxy = AopContext.currentProxy();
-            Object target = pjp.getTarget();
-
-            // 3. 检查堆栈：判断当前方法调用的上层方法（Caller）是否来自于当前类本身
-            StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
-            String currentClassName = target.getClass().getName();
-
-            int selfCallCount = 0;
-            for (StackTraceElement element : stackTrace) {
-                // 如果堆栈中多次出现了当前类的方法，说明存在类内部的相互调用
-                if (element.getClassName().equals(currentClassName)) {
-                    selfCallCount++;
-                }
-            }
-
-            // 如果在堆栈中发现当前类内部的方法调用了另一个内部方法
-            if (selfCallCount > 1) {
-                // 提示用户：确保使用的是 AopContext.currentProxy() 代理对象调用，而非 this.method()
-                log.debug("ℹ️ [AgentAegis 诊断] 检测到类 [{}] 内部方法间调用 @AgentStep [{}]。" +
-                                "请确保通过 ((Class) AopContext.currentProxy()).step() 进行代理调用，以保证切面生效。",
-                        currentClassName, pjp.getSignature().getName());
-            }
-
-        } catch (IllegalStateException e) {
-            // 防御性捕获：防止个别场景下未正确暴露代理对象
-            log.warn("⚠️ [AgentAegis 警告] 无法获取当前 AOP 代理对象！" +
-                            "请确认配置类上的 @EnableAspectJAutoProxy(exposeProxy = true) 是否生效，" +
-                            "否则内部调用 @AgentStep 方法 [{}] 时切面将失效。",
-                    pjp.getSignature().toShortString());
-        }
-    }
 }

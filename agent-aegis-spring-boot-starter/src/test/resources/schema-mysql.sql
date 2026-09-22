@@ -1,8 +1,12 @@
 -- 1. 任务上下文表
 CREATE TABLE IF NOT EXISTS agent_guardian_task (
-                                                   id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                                                   task_id VARCHAR(64) NOT NULL,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    task_id VARCHAR(64) NOT NULL,
+    `name` VARCHAR(100) NOT NULL,
     status VARCHAR(32) NOT NULL,
+    retries INT NOT NULL DEFAULT 0,
+    input_payload LONGTEXT,
+    output_payload LONGTEXT,
     metadata_json LONGTEXT,
     created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),

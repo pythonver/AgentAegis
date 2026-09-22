@@ -61,7 +61,7 @@ class JdbcCheckpointRepositoryImplTest {
                 .taskId("task-1001")
                 .status(TaskStatus.RUNNING)
                 .build();
-        context.setVariable("environment", "test");
+
 
         repository.saveTask(context);
 
@@ -69,17 +69,14 @@ class JdbcCheckpointRepositoryImplTest {
         assertThat(found).isPresent();
         assertThat(found.get().getTaskId()).isEqualTo("task-1001");
         assertThat(found.get().getStatus()).isEqualTo(TaskStatus.RUNNING);
-        assertThat(found.get().<String>getVariable("environment")).isEqualTo("test");
 
         // 2. 更新 Task (验证 ON DUPLICATE KEY UPDATE)
         context.setStatus(TaskStatus.SUCCESS);
-        context.setVariable("retryCount", 2);
         repository.saveTask(context);
 
         Optional<TaskContext> updated = repository.findTaskById("task-1001");
         assertThat(updated).isPresent();
         assertThat(updated.get().getStatus()).isEqualTo(TaskStatus.SUCCESS);
-        assertThat(updated.get().<Integer>getVariable("retryCount")).isEqualTo(2);
     }
 
     @Test

@@ -29,12 +29,23 @@ public class TaskContext {
     // 任务id
     private String taskId;
 
+    // 任务名称
+    private String name;
+
     // 任务状态
     private TaskStatus status;
 
-    // 任务元数据
     @Builder.Default
-    private Map<String, Object> metadata = new ConcurrentHashMap<>();
+    private Integer retries = 0 ;
+
+    // 任务输入
+    private String inputPayload;
+
+    // 任务输出
+    private String outputPayload;
+
+    // 任务元数据
+    private String metadata;
 
     // 任务创建时间
     @Builder.Default
@@ -43,29 +54,6 @@ public class TaskContext {
     // 任务最后更新时间
     @Builder.Default
     private Instant updatedAt = Instant.now();
-
-    public void setVariable(String key, Object value) {
-        if (this.metadata == null) {
-            this.metadata = new ConcurrentHashMap<>();
-        }
-        if (value != null) {
-            this.metadata.put(key, value);
-        } else {
-            this.metadata.remove(key);
-        }
-        this.updatedAt = Instant.now();
-    }
-
-    /**
-     * 类型安全的变量获取方法 (新增便利方法)
-     */
-    @SuppressWarnings("unchecked")
-    public <T> T getVariable(String key) {
-        if (this.metadata == null) {
-            return null;
-        }
-        return (T) this.metadata.get(key);
-    }
 
 
     public String toJson() throws JsonProcessingException {

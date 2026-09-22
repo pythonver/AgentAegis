@@ -54,10 +54,7 @@ public class TaskContextHolder {
      */
     public static String getTaskId() {
         TaskContext context = CONTEXT_HOLDER.get();
-        if (context == null || !StringUtils.hasText(context.getTaskId())) {
-            context = getOrCreateContext();
-        }
-        return context.getTaskId();
+        return (context != null && StringUtils.hasText(context.getTaskId())) ? context.getTaskId() : null;
     }
 
     /**
