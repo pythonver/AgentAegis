@@ -90,13 +90,13 @@ public class RetryEngine  {
      * @param <T> 任务执行结果类型
      * @throws Throwable 异常
      */
-    public static <T> T execute(Callable<T> task, RetryConfig retryConfig) throws Throwable {
+    public static <T> T execute(RetryTask<T> task, RetryConfig retryConfig) throws Throwable {
         int attempt = 0;
 
         while (true) {
             try {
                 attempt++;
-                return task.call();
+                return task.run();
             }catch (Throwable t) {
                 if (attempt > retryConfig.getMaxRetries() || !isRetryable(t,  retryConfig.getRetryFor(), retryConfig.getNoRetryFor())) {
                     throw t;
@@ -115,10 +115,4 @@ public class RetryEngine  {
         }
     }
 
-    public static void execute(Runnable task, RetryConfig retryConfig) throws Throwable {
-        execute(() -> {
-            task.run();
-            return null;
-        },  retryConfig);
-    }
 }
