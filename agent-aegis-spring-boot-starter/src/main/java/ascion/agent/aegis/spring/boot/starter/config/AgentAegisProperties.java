@@ -1,6 +1,7 @@
 package ascion.agent.aegis.spring.boot.starter.config;
 
 import ascion.agent.aegis.spring.boot.starter.config.enums.DatasourceMode;
+import ascion.agent.aegis.spring.boot.starter.config.enums.RepositoryType;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -25,6 +26,17 @@ public class AgentAegisProperties {
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
     }
+
+    private RepositoryType repositoryType = RepositoryType.MEMORY;
+
+    public RepositoryType getRepositoryType() {
+        return repositoryType;
+    }
+
+    public void setRepositoryType(RepositoryType repositoryType) {
+        this.repositoryType = repositoryType;
+    }
+
 
     public DatasourceConfig getDatasource() {
         return datasource;
@@ -64,4 +76,6 @@ public class AgentAegisProperties {
             this.custom = custom;
         }
     }
+
+
 }

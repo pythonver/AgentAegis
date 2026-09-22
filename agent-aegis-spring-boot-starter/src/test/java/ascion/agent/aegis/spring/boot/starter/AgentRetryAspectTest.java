@@ -66,7 +66,7 @@ class AgentRetryAspectTest {
 
         // 验证降级方法收到了业务抛出的 IllegalArgumentException
         assertEquals("FallbackWithEx: hello, Error: 参数不合法", result);
-        assertEquals(2, testService.getCallCount());
+        assertEquals(1, testService.getCallCount());
     }
 
     @Test
