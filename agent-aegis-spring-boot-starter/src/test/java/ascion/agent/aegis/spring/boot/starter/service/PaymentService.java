@@ -1,4 +1,4 @@
-package ascion.agent.aegis.spring.boot.starter;
+package ascion.agent.aegis.spring.boot.starter.service;
 
 import ascion.agent.aegis.spring.boot.starter.annotation.AgentStep;
 import org.springframework.stereotype.Component;

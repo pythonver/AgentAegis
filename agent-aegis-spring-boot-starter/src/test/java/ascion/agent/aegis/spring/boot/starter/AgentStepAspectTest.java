@@ -43,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 @SpringBootTest
-@ActiveProfiles("test")
+//@ActiveProfiles("test")
 @Rollback(false) // 允许数据真正 COMMIT 到 MySQL
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE) // 强制使用真实配置的数据库
 //@TestPropertySource(properties = {
@@ -57,6 +57,17 @@ import static org.mockito.Mockito.*;
 //        "spring.sql.init.mode=always",
 //        "spring.sql.init.schema-locations=classpath:schema-mysql.sql"
 //})
+@TestPropertySource(properties = {
+        "agent-aegis.enabled=true",
+        "agent-aegis.repository-type=JDBC",
+        "agent-aegis.datasource.mode=INHERIT",
+        "spring.datasource.driver-class-name=org.h2.Driver",
+        "spring.datasource.url=jdbc:h2:mem:testdb;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
+        "spring.datasource.username=sa",
+        "spring.datasource.password=",
+        "spring.sql.init.mode=always",
+        "spring.sql.init.schema-locations=classpath:schema-mysql.sql"
+})
 class AgentStepJdbcIntegrationTest {
 
     @SpringBootApplication(scanBasePackages = "ascion.agent.aegis")

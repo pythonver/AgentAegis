@@ -1,6 +1,7 @@
 package ascion.agent.aegis.spring.boot.starter;
 
 import ascion.agent.aegis.spring.boot.starter.aspect.AgentRetryAspect;
+import ascion.agent.aegis.spring.boot.starter.service.TestService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
