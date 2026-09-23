@@ -2,6 +2,9 @@ package ascion.agent.aegis.spring.boot.starter.config;
 
 import ascion.agent.aegis.core.repository.CheckpointRepository;
 import ascion.agent.aegis.core.repository.impl.InMemoryCheckpointRepositoryImpl;
+import ascion.agent.aegis.spring.boot.starter.aspect.AgentRetryAspect;
+import ascion.agent.aegis.spring.boot.starter.aspect.AgentStepAspect;
+import ascion.agent.aegis.spring.boot.starter.aspect.AgentWorkflowAspect;
 import ascion.agent.aegis.spring.boot.starter.repository.JdbcCheckpointRepositoryImpl;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -20,7 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import javax.sql.DataSource;
 
 /**
- * 自动配置 Agent-Aegis 使用的数据源
+ * 自动配置 Agent-Aegis 使用的数据源和切面
  */
 @AutoConfiguration
 @AutoConfigureAfter({DataSourceAutoConfiguration.class, JdbcTemplateAutoConfiguration.class})
@@ -28,6 +31,23 @@ import javax.sql.DataSource;
 @EnableConfigurationProperties(AgentAegisProperties.class)
 @EnableAspectJAutoProxy(exposeProxy = true)
 public class AgentAegisAutoConfiguration {
+
+
+    @Bean
+    public AgentRetryAspect agentRetryAspect() {
+        return new AgentRetryAspect();
+    }
+
+    @Bean
+    public AgentStepAspect agentStepAspect() {
+        return new AgentStepAspect();
+    }
+
+    @Bean
+    public AgentWorkflowAspect agentWorkflowAspect() {
+        return new AgentWorkflowAspect();
+    }
+
 
     // =========================================================================
     // 分支 A：内存存储实现（repository-type = MEMORY 或未显式配置时生效）

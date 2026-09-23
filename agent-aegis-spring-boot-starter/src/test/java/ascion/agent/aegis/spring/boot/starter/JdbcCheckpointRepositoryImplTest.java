@@ -56,9 +56,10 @@ class JdbcCheckpointRepositoryImplTest {
     @Test
     @DisplayName("测试 TaskContext 的保存与查询 (Upsert)")
     void testSaveAndFindTask() {
-        // 1. 新增 Task
+        // 1. 新增 Task（name 列 NOT NULL，必须赋值）
         TaskContext context = TaskContext.builder()
                 .taskId("task-1001")
+                .name("test-save-task")
                 .status(TaskStatus.RUNNING)
                 .build();
 

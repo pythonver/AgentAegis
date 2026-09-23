@@ -17,8 +17,9 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
+import org.springframework.core.annotation.Order;
 import org.springframework.util.StringUtils;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -27,7 +28,7 @@ import static ascion.agent.aegis.spring.boot.starter.utils.SelfInvocationDiagnos
 import static ascion.agent.aegis.spring.boot.starter.utils.SerializeUtil.safeSerialize;
 
 @Aspect
-@Component
+@Order(10)
 public class AgentWorkflowAspect {
 
     private static final Logger log = LoggerFactory.getLogger(AgentWorkflowAspect.class);

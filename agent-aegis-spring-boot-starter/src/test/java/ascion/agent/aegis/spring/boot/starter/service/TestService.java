@@ -64,4 +64,11 @@ public class TestService {
     public String badFallback(String param, Throwable e) {
         throw new IllegalStateException("降级逻辑内部崩溃");
     }
+
+    // 场景 6：可重试异常耗尽后触发带 Throwable 的降级，降级应收到业务原异常而非包装类
+    @AgentRetry(maxRetries = 1, baseDelayMs = 10, fallbackMethod = "fallbackWithEx")
+    public String doSomethingExhaustedWithExFallback(String param) {
+        callCount++;
+        throw new RuntimeException("耗尽业务异常");
+    }
 }

@@ -5,20 +5,12 @@ import ascion.agent.aegis.core.model.StepStatus;
 import ascion.agent.aegis.core.model.TaskContext;
 import ascion.agent.aegis.core.repository.CheckpointRepository;
 import ascion.agent.aegis.spring.boot.starter.annotation.AgentStep;
-import ascion.agent.aegis.spring.boot.starter.aspect.AgentStepAspect;
 import ascion.agent.aegis.spring.boot.starter.context.TaskContextHolder;
 import ascion.agent.aegis.spring.boot.starter.repository.JdbcCheckpointRepositoryImpl;
-import ascion.agent.aegis.spring.boot.starter.utils.SerializeUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -26,12 +18,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.Rollback;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 
 import java.lang.reflect.UndeclaredThrowableException;
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,8 +30,7 @@ import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+
 @SpringBootTest
 //@ActiveProfiles("test")
 @Rollback(false) // 允许数据真正 COMMIT 到 MySQL

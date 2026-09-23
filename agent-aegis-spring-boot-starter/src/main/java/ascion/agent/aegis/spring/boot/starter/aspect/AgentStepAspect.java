@@ -15,7 +15,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
-import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.lang.reflect.Type;
@@ -33,7 +32,6 @@ import static ascion.agent.aegis.spring.boot.starter.utils.StackTraceUtil.getSta
  * agent步骤切面
  */
 @Aspect
-@Component
 @Order(100)
 public class AgentStepAspect {
 

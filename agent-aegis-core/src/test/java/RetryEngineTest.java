@@ -1,3 +1,5 @@
+import ascion.agent.aegis.core.exception.AgentRetryExhaustedException;
+import ascion.agent.aegis.core.retry.RetryConfig;
 import ascion.agent.aegis.core.retry.RetryEngine;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -5,8 +7,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Duration;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class RetryEngineTest {
 
@@ -79,5 +84,79 @@ public class RetryEngineTest {
         Duration delay = RetryEngine.calculateDelay(1, Duration.ZERO, maxDelay, backoffFactor);
 
         assertThat(delay).isEqualTo(Duration.ZERO);
+    }
+
+    // ==================== execute：耗尽与异常分类 ====================
+
+    private RetryConfig zeroDelayConfig(int maxRetries) {
+        return RetryConfig.builder()
+                .maxRetries(maxRetries)
+                .baseDelay(Duration.ZERO)
+                .maxDelay(Duration.ZERO)
+                .backoffFactor(backoffFactor)
+                .retryFor(Set.of(RuntimeException.class))
+                .noRetryFor(Set.of())
+                .build();
+    }
+
+    @Test
+    @DisplayName("execute 耗尽：可重试异常打满 maxRetries 后抛 AgentRetryExhaustedException，cause 为原异常")
+    void execute_shouldThrowExhausted_whenRetriesDepleted() throws Throwable {
+        AtomicInteger calls = new AtomicInteger();
+        RetryConfig config = zeroDelayConfig(2);
+
+        AgentRetryExhaustedException ex = assertThrows(
+                AgentRetryExhaustedException.class,
+                () -> RetryEngine.execute(() -> {
+                    calls.incrementAndGet();
+                    throw new IllegalStateException("boom");
+                }, config)
+        );
+
+        assertTrue(ex.getMessage().contains("maxRetries=2"), ex.getMessage());
+        assertNotNull(ex.getCause());
+        assertThat(ex.getCause()).isInstanceOf(IllegalStateException.class);
+        assertThat(ex.getCause().getMessage()).isEqualTo("boom");
+        // 1 次初试 + maxRetries 次重试
+        assertThat(calls.get()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("execute 不可重试：命中 noRetryFor 时直接抛原异常，不包装为 Exhausted")
+    void execute_shouldThrowOriginal_whenNotRetryable() throws Throwable {
+        AtomicInteger calls = new AtomicInteger();
+        RetryConfig config = RetryConfig.builder()
+                .maxRetries(5)
+                .baseDelay(Duration.ZERO)
+                .maxDelay(Duration.ZERO)
+                .retryFor(Set.of(RuntimeException.class))
+                .noRetryFor(Set.of(IllegalArgumentException.class))
+                .build();
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> RetryEngine.execute(() -> {
+                    calls.incrementAndGet();
+                    throw new IllegalArgumentException("非法入参");
+                }, config)
+        );
+
+        assertThat(ex.getMessage()).isEqualTo("非法入参");
+        assertThat(calls.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("execute 成功路径：首次成功不抛异常、不触发重试")
+    void execute_shouldReturn_whenFirstAttemptSucceeds() throws Throwable {
+        AtomicInteger calls = new AtomicInteger();
+        RetryConfig config = zeroDelayConfig(3);
+
+        String result = RetryEngine.execute(() -> {
+            calls.incrementAndGet();
+            return "ok";
+        }, config);
+
+        assertThat(result).isEqualTo("ok");
+        assertThat(calls.get()).isEqualTo(1);
     }
 }

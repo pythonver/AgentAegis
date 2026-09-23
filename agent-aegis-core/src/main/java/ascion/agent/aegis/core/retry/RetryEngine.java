@@ -1,9 +1,10 @@
 package ascion.agent.aegis.core.retry;
 
+import ascion.agent.aegis.core.exception.AgentRetryExhaustedException;
+
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
@@ -98,10 +99,15 @@ public class RetryEngine  {
                 attempt++;
                 return task.run();
             }catch (Throwable t) {
-                if (attempt > retryConfig.getMaxRetries() || !isRetryable(t,  retryConfig.getRetryFor(), retryConfig.getNoRetryFor())) {
+                if ( !isRetryable(t,  retryConfig.getRetryFor(), retryConfig.getNoRetryFor())) {
                     throw t;
                 }
 
+                if (attempt > retryConfig.getMaxRetries()){
+                    throw new AgentRetryExhaustedException(String.format("重试次数耗尽 (maxRetries=%d)", retryConfig.getMaxRetries()), t);
+                }
+
+                // 继续退避
                 long delay = calculateDelay(attempt, retryConfig).toMillis();
                 if (delay > 0 ) {
                     try {

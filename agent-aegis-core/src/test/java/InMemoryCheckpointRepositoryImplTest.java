@@ -1,6 +1,6 @@
 import ascion.agent.aegis.core.model.Checkpoint;
-import ascion.agent.aegis.core.model.TaskContext;
 import ascion.agent.aegis.core.model.StepStatus;
+import ascion.agent.aegis.core.model.TaskContext;
 import ascion.agent.aegis.core.model.TaskStatus;
 import ascion.agent.aegis.core.repository.impl.InMemoryCheckpointRepositoryImpl;
 import org.junit.jupiter.api.BeforeEach;

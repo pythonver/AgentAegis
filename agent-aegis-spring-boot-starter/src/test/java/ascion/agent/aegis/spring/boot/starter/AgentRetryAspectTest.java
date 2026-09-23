@@ -1,5 +1,6 @@
 package ascion.agent.aegis.spring.boot.starter;
 
+import ascion.agent.aegis.core.exception.AgentRetryExhaustedException;
 import ascion.agent.aegis.spring.boot.starter.aspect.AgentRetryAspect;
 import ascion.agent.aegis.spring.boot.starter.service.TestService;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,8 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest(classes = {
         AgentRetryAspect.class,
@@ -28,15 +28,17 @@ class AgentRetryAspectTest {
     }
 
     @Test
-    @DisplayName("场景 1：重试耗尽且未配置 fallback，应抛出原始异常")
-    void testNoFallback_ShouldThrowOriginalException() {
-        // 执行并断言抛出原始异常
-        RuntimeException exception = assertThrows(
-                RuntimeException.class,
+    @DisplayName("场景 1：重试耗尽且未配置 fallback，应抛出 AgentRetryExhaustedException 并保留 cause")
+    void testNoFallback_ShouldThrowExhaustedException() {
+        AgentRetryExhaustedException exception = assertThrows(
+                AgentRetryExhaustedException.class,
                 () -> testService.doSomethingNoFallback("test")
         );
 
-        assertEquals("业务执行失败", exception.getMessage());
+        assertTrue(exception.getMessage().contains("maxRetries=2"),
+                "耗尽信息应包含 maxRetries: " + exception.getMessage());
+        assertNotNull(exception.getCause(), "包装异常必须保留业务原异常作为 cause");
+        assertEquals("业务执行失败", exception.getCause().getMessage());
         // maxRetries = 2，代表【1次初试 + 2次重试】= 3次调用
         assertEquals(3, testService.getCallCount());
     }
@@ -80,5 +82,16 @@ class AgentRetryAspectTest {
         );
 
         assertEquals("降级逻辑内部崩溃", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("场景 6：耗尽后触发带 Throwable 的降级，应收到业务原异常（cause）而非包装类")
+    void testExhaustedFallback_ShouldReceiveOriginalCause() {
+        String result = testService.doSomethingExhaustedWithExFallback("abc");
+
+        // 降级拿到的是 cause（耗尽业务异常），不是 AgentRetryExhaustedException
+        assertEquals("FallbackWithEx: abc, Error: 耗尽业务异常", result);
+        // maxRetries = 1 → 初试 + 1 次重试 = 2 次调用后进入降级
+        assertEquals(2, testService.getCallCount());
     }
 }

@@ -1,5 +1,6 @@
 package ascion.agent.aegis.spring.boot.starter.aspect;
 
+import ascion.agent.aegis.core.exception.AgentRetryExhaustedException;
 import ascion.agent.aegis.core.retry.RetryConfig;
 import ascion.agent.aegis.core.retry.RetryEngine;
 import ascion.agent.aegis.spring.boot.starter.annotation.AgentRetry;
@@ -13,7 +14,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.core.annotation.Order;
-import org.springframework.stereotype.Component;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -22,7 +22,6 @@ import java.util.Arrays;
 import java.util.Set;
 
 @Aspect
-@Component
 @Order(200)
 public class AgentRetryAspect {
 
@@ -51,7 +50,14 @@ public class AgentRetryAspect {
             // fallback 多一个 Throwable 参数
             if (fallbackMethod.getParameterCount() == args.length + 1) {
                 args = Arrays.copyOf(args, args.length + 1);
-                args[args.length - 1] = e;
+
+                if (e instanceof AgentRetryExhaustedException){
+                    args[args.length - 1] = e.getCause();
+                }else {
+                    args[args.length - 1] = e;
+                }
+
+
             }
 
             try {
