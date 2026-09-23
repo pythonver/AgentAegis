@@ -80,8 +80,9 @@ public class JdbcCheckpointRepositoryImpl implements CheckpointRepository {
             Optional<TaskContext> existing = findTaskById(context.getTaskId());
 
             if (existing.isPresent()) {
-                String updateSql = "UPDATE agent_guardian_task SET status = ?, input_payload = ?, output_payload = ?, retries = ?, metadata_json = ?, updated_at = ? WHERE task_id = ?";
+                String updateSql = "UPDATE agent_guardian_task SET name = ?, status = ?, input_payload = ?, output_payload = ?, retries = ?, metadata_json = ?, updated_at = ? WHERE task_id = ?";
                 jdbcTemplate.update(updateSql,
+                        context.getName(),
                         context.getStatus().name(),
                         context.getInputPayload(),
                         context.getOutputPayload(),
