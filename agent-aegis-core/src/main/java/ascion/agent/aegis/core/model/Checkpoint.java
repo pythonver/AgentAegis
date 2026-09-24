@@ -13,7 +13,7 @@ import java.time.Instant;
 @Data
 @Builder
 public class Checkpoint {
-    // 任务id
+    // 所属运行实例 ID（TaskContext.taskId）
     private String taskId;
 
     // 步骤名称

@@ -1,7 +1,7 @@
 package ascion.agent.aegis.core.model;
 
 public enum TaskStatus {
-    // 运行中（可能正在运行，也可能处理异常运行状态，可配置化的工作流异常时长）
+    // 运行实例执行中；超时未更新可由后续后台清扫判定僵尸（入口切面不接管）
     RUNNING,
     // 已成功执行
     SUCCESS,

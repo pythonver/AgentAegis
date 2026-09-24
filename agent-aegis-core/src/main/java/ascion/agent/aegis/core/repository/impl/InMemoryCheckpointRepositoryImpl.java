@@ -2,6 +2,7 @@ package ascion.agent.aegis.core.repository.impl;
 
 import ascion.agent.aegis.core.model.Checkpoint;
 import ascion.agent.aegis.core.model.TaskContext;
+import ascion.agent.aegis.core.model.TaskStatus;
 import ascion.agent.aegis.core.repository.CheckpointRepository;
 
 import java.util.*;
@@ -66,5 +67,10 @@ public class InMemoryCheckpointRepositoryImpl implements CheckpointRepository {
         return stepMap.values().stream()
                 .sorted(Comparator.comparing(Checkpoint::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
+    }
+
+    @Override
+    public List<TaskContext> getTasksByStatus(TaskStatus status) {
+        return taskContexts.values().stream().filter(taskContext -> taskContext.getStatus().equals(status)).toList();
     }
 }

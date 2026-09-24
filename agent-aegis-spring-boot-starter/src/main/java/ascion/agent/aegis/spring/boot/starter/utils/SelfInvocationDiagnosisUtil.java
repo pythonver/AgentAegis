@@ -14,7 +14,7 @@ public class SelfInvocationDiagnosisUtil {
      * 诊断当前方法调用是否可能存在 Spring AOP 自调用失效风险
      */
     public static void checkSelfInvocationDiagnosis(ProceedingJoinPoint pjp) {
-        // 1. 只有在处于 @AgentWorkflow 的 Task 上下文中才需要诊断
+        // 1. 仅当 ThreadLocal 中已有 workflow 运行实例上下文（TaskContext）时诊断
         if (TaskContextHolder.getContext() == null) {
             return;
         }

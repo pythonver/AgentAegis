@@ -21,7 +21,7 @@ public @interface AgentStep {
     /**
      * 是否开启断点回放
      * - true（默认）：若数据库中已存在该 (taskId, stepName) 且状态为 SUCCESS，直接反序列化 DB 中的 output_json 返回，跳过方法真实执行。
-     * - false：即使历史已成功，每次执行 Workflow 时仍强行重新调用该步骤。
+     * - false：即使历史已成功，每次运行该 workflow 实例链时仍强行重新调用该步骤。
      */
     boolean replay() default true;
 

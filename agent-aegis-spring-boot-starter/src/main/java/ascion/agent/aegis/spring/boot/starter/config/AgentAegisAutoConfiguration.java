@@ -5,6 +5,12 @@ import ascion.agent.aegis.core.repository.impl.InMemoryCheckpointRepositoryImpl;
 import ascion.agent.aegis.spring.boot.starter.aspect.AgentRetryAspect;
 import ascion.agent.aegis.spring.boot.starter.aspect.AgentStepAspect;
 import ascion.agent.aegis.spring.boot.starter.aspect.AgentWorkflowAspect;
+import ascion.agent.aegis.spring.boot.starter.listener.AgentTaskReadyListener;
+import ascion.agent.aegis.spring.boot.starter.listener.AgentWorkflowBeanScanListener;
+import ascion.agent.aegis.spring.boot.starter.registry.AgentWorkflowRegistry;
+import ascion.agent.aegis.spring.boot.starter.resume.TaskResumeDispatcher;
+import ascion.agent.aegis.spring.boot.starter.resume.TaskResumeRunner;
+import ascion.agent.aegis.spring.boot.starter.resume.ThreadPoolTaskResumeDispatcher;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -17,10 +23,11 @@ import org.springframework.context.annotation.EnableAspectJAutoProxy;
  */
 @AutoConfiguration
 @ConditionalOnProperty(prefix = "agent-aegis", name = "enabled", havingValue = "true", matchIfMissing = true)
-@EnableConfigurationProperties(AgentAegisProperties.class)
+@EnableConfigurationProperties({AgentAegisProperties.class, AgentAegisTaskResumeProperties.class})
 @EnableAspectJAutoProxy(exposeProxy = true)
 public class AgentAegisAutoConfiguration {
 
+    // 注册切面
     @Bean
     public AgentRetryAspect agentRetryAspect() {
         return new AgentRetryAspect();
@@ -35,6 +42,36 @@ public class AgentAegisAutoConfiguration {
     public AgentWorkflowAspect agentWorkflowAspect() {
         return new AgentWorkflowAspect();
     }
+
+    // 注册重启Bean（Dispatcher 允许业务侧以同名 @Bean 覆盖）
+    @Bean
+    @ConditionalOnMissingBean
+    public TaskResumeRunner taskResumeRunner(CheckpointRepository checkpointRepository, AgentWorkflowRegistry agentWorkflowRegistry) {
+        return new TaskResumeRunner(checkpointRepository, agentWorkflowRegistry);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(TaskResumeDispatcher.class)
+    public TaskResumeDispatcher taskResumeDispatcher(TaskResumeRunner taskResumeRunner) {
+        return new ThreadPoolTaskResumeDispatcher(taskResumeRunner);
+    }
+
+    // 注册监听器（扫描=定义侧 Workflow；Ready=实例侧 Task 恢复）
+    @Bean
+    public AgentWorkflowRegistry agentWorkflowRegistry() {
+        return new AgentWorkflowRegistry();
+    }
+
+    @Bean
+    public AgentWorkflowBeanScanListener agentWorkflowBeanScanListener(AgentWorkflowRegistry agentWorkflowRegistry) {
+        return new AgentWorkflowBeanScanListener(agentWorkflowRegistry);
+    }
+
+    @Bean
+    public AgentTaskReadyListener agentTaskReadyListener(CheckpointRepository checkpointRepository, TaskResumeDispatcher  taskResumeDispatcher) {
+        return new AgentTaskReadyListener(checkpointRepository, taskResumeDispatcher);
+    }
+
 
     /**
      * 内存存储实现（默认，无需任何数据库依赖）

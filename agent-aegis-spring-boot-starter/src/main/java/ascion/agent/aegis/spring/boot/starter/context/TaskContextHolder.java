@@ -7,7 +7,7 @@ import java.util.UUID;
 
 
 /**
- * Task 上下文持有者
+ * 运行实例上下文持有者（Task = 实例侧；当前线程绑定的 workflow 一次运行）
  */
 public class TaskContextHolder {
 

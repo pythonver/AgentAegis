@@ -40,14 +40,9 @@ public class TestWorkflowService {
         return input;
     }
 
-    @AgentWorkflow(maxRetries = 2)
+    @AgentWorkflow
     public String processAlwaysFail(String input) {
         throw new IllegalStateException("Biz Error");
-    }
-
-    @AgentWorkflow(zombieTimeoutSeconds = 1)
-    public String processZombieTakeover(String input) {
-        return "took-over: " + input;
     }
 
     @AgentWorkflow(name = "void-flow")

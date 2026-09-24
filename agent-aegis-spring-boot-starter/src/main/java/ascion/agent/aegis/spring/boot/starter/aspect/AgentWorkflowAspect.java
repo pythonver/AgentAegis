@@ -5,7 +5,6 @@ import ascion.agent.aegis.core.model.TaskStatus;
 import ascion.agent.aegis.core.repository.CheckpointRepository;
 import ascion.agent.aegis.spring.boot.starter.annotation.AgentWorkflow;
 import ascion.agent.aegis.spring.boot.starter.context.TaskContextHolder;
-import ascion.agent.aegis.spring.boot.starter.exception.MaxRetriesExceededException;
 import ascion.agent.aegis.spring.boot.starter.exception.TaskAlreadyExistsException;
 import ascion.agent.aegis.spring.boot.starter.result.AgentWorkflowResult;
 import ascion.agent.aegis.spring.boot.starter.utils.SerializeUtil;
@@ -20,13 +19,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
 import org.springframework.util.StringUtils;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
 import static ascion.agent.aegis.spring.boot.starter.utils.SelfInvocationDiagnosisUtil.checkSelfInvocationDiagnosis;
 import static ascion.agent.aegis.spring.boot.starter.utils.SerializeUtil.safeSerialize;
 
+/**
+ * 一次 workflow 调用的执行外壳：认领 taskId → 绑上下文 → 落 RUNNING → 执行 → 落终态 → 清上下文。
+ * <p>
+ * 再入策略仅处理 SUCCESS（REPLAY / THROW）；RUNNING/FAILED 一律按重跑（覆盖更新，无次数上限）；
+ * PAUSED 拒绝进入。僵尸判定与后台清扫不在本切面职责内。
+ */
 @Aspect
 @Order(10)
 public class AgentWorkflowAspect {
@@ -44,7 +48,6 @@ public class AgentWorkflowAspect {
         if (agentWorkflow.conflictStrategy().equals(AgentWorkflow.ConflictStrategy.REPLAY)
                 && agentWorkflow.ignoreOutput()) {
 
-            // 明确告之开发者：这两个配置不能同时使用！
             throw new IllegalArgumentException(
                     "Invalid Workflow Configuration: Cannot set conflictStrategy = REPLAY when ignoreOutput = true, " +
                             "because the output payload has been purged from the database and cannot be replayed."
@@ -55,7 +58,6 @@ public class AgentWorkflowAspect {
         try {
             MethodSignature signature = (MethodSignature) pjp.getSignature();
 
-            // 创建任务
             String taskId = getTaskId(pjp, agentWorkflow);
             Instant now = Instant.now();
 
@@ -66,48 +68,28 @@ public class AgentWorkflowAspect {
             if (existingTaskOpt.isPresent()) {
                 taskContext = existingTaskOpt.get();
                 if (!StringUtils.hasText(taskContext.getName())) {
-                    taskContext.setName(getTaskName(pjp, signature, agentWorkflow));
+                    taskContext.setName(resolveWorkflowKey(pjp, signature, agentWorkflow));
                 }
                 TaskStatus status = taskContext.getStatus();
 
-                // 1. SUCCESS
+                // 仅 SUCCESS 再入：REPLAY 回放或拒绝；不落库
                 if (status.equals(TaskStatus.SUCCESS)) {
                     return handleSuccessTask(signature, agentWorkflow, taskContext, taskId);
                 }
 
-                // 2. RUNNING
-                if (status.equals(TaskStatus.RUNNING)) {
-                    // 若是僵尸任务，函数内会将其 status 改为 FAILED
-                    handleRunningTaskCheck(taskContext, taskId, agentWorkflow);
-                    status = taskContext.getStatus();
+                // PAUSED 为预留状态，拒绝进入（不重跑）
+                if (status.equals(TaskStatus.PAUSED)) {
+                    throw new IllegalStateException(
+                            String.format("任务 [%s] 处于 PAUSED（预留状态），暂不支持进入执行", taskId));
                 }
-                // 3. FAILED
-                if (status.equals(TaskStatus.FAILED)) {
-                    int maxRetries = agentWorkflow.maxRetries();
-                    int currentRetries = taskContext.getRetries();
 
-                    if (currentRetries >= maxRetries) {
-                        throw new MaxRetriesExceededException(
-                                String.format("任务 [%s] 已达到最大重试次数上限 (%d/%d)，拒绝再次重试",
-                                        taskId, currentRetries, maxRetries)
-                        );
-                    }
-
-                    // 允许重试：自增重试次数
-                    taskContext.setRetries(currentRetries + 1);
-                    log.info("🔄 [AgentWorkflow] 任务 [{}] 正在发起第 {}/{} 次重试...",
-                            taskId, taskContext.getRetries(), maxRetries);
-                }
-                if(status.equals(TaskStatus.PAUSED)) {
-
-                }
+                // RUNNING / FAILED：一律按重跑，走下方生命周期（覆盖更新）
 
             } else {
-                // ================= 4. 全新任务初始化 =================
                 taskContext = TaskContext.builder()
                         .taskId(taskId)
-                        .name(getTaskName(pjp, signature, agentWorkflow))
-                        .retries(0) // 初始重试次数为 0
+                        .name(resolveWorkflowKey(pjp, signature, agentWorkflow))
+                        .retries(0)
                         .createdAt(now)
                         .updatedAt(now)
                         .status(TaskStatus.RUNNING)
@@ -115,16 +97,13 @@ public class AgentWorkflowAspect {
             }
 
 
-            // 绑定当前线程上下文
             TaskContextHolder.setContext(taskContext);
 
-            // 重新进入 RUNNING 状态，更新 payload 与时间戳，同步落盘
             Object[] args = pjp.getArgs();
             taskContext.setInputPayload(safeSerialize(args));
             taskContext.setUpdatedAt(now);
             taskContext.setStatus(TaskStatus.RUNNING);
 
-            // 确保 DB 里的状态、重试次数 (retries) 和输入参数实时同步
             checkpointRepository.saveTask(taskContext);
 
 
@@ -136,7 +115,6 @@ public class AgentWorkflowAspect {
 
     }
 
-    // 同步调用
     private Object proceedDirectly(ProceedingJoinPoint pjp, AgentWorkflow agentWorkflow, TaskContext taskContext) throws Throwable {
 
         try {
@@ -158,17 +136,12 @@ public class AgentWorkflowAspect {
         }
     }
 
-    // 超时调用
     private void proceedWithTimeout(ProceedingJoinPoint pjp, AgentWorkflow agentWorkflow, TaskContext taskContext) throws Throwable {
         // TODO : 计划支持
     }
 
     /**
-     * 使用 SqEL 表达式提取taskid
-     * @param pjp
-     * @param agentWorkflow
-     * @return
-     * @throws Throwable
+     * 优先复用 ThreadLocal 中已有 taskId，否则生成新 id。
      */
     private String getTaskId(ProceedingJoinPoint pjp, AgentWorkflow agentWorkflow) throws Throwable {
 
@@ -177,8 +150,14 @@ public class AgentWorkflowAspect {
 
     }
 
-    private String getTaskName(ProceedingJoinPoint pjp, MethodSignature methodSignature, AgentWorkflow agentWorkflow) throws Throwable {
-
+    /**
+     * 解析 workflow 定义键（非实例自定义名）。
+     * <p>
+     * 规则：{@code @AgentWorkflow.name()} 非空白则用之，否则回落方法名。
+     * 返回值写入 {@link TaskContext#getName()}（实例侧 name 列），
+     * 并与 {@code AgentWorkflowRegistry} 的键对齐，供启动恢复时按实例反查定义。
+     */
+    private String resolveWorkflowKey(ProceedingJoinPoint pjp, MethodSignature methodSignature, AgentWorkflow agentWorkflow) {
         if (agentWorkflow.name().isBlank()) {
             return methodSignature.getMethod().getName();
         }
@@ -187,7 +166,7 @@ public class AgentWorkflowAspect {
 
 
     /**
-     * SUCCESS 状态的响应处理（只允许 REPLAY 结果或抛异常拒绝）
+     * SUCCESS 再入：REPLAY 回放出参（不落库）或 THROW 拒绝重跑。
      */
     private Object handleSuccessTask(MethodSignature signature, AgentWorkflow agentWorkflow, TaskContext taskContext, String taskId) throws Exception {
         if (agentWorkflow.conflictStrategy().equals(AgentWorkflow.ConflictStrategy.REPLAY)) {
@@ -198,11 +177,9 @@ public class AgentWorkflowAspect {
             if (!StringUtils.hasText(outputPayload)) {
                 return buildResult(null, signature.getReturnType(), taskContext);
             }
-            // 3. 从 DB 还原原始的 result 对象
             JavaType javaType = SerializeUtil.getMapper().getTypeFactory().constructType(signature.getMethod().getGenericReturnType());
             Object replayedResult = SerializeUtil.getMapper().readValue(outputPayload, javaType);
 
-            // 4. 关键：将还原出来的 replayedResult 再次经过 buildResult 补充 taskId 与 taskStatus！
             return buildResult(replayedResult, signature.getReturnType(), taskContext);
         }
 
@@ -210,39 +187,14 @@ public class AgentWorkflowAspect {
     }
 
     /**
-     * 校验 RUNNING 状态
-     */
-    private void handleRunningTaskCheck(TaskContext taskContext, String taskId, AgentWorkflow agentWorkflow) {
-        long zombieTimeoutSeconds = agentWorkflow.zombieTimeoutSeconds();
-        Instant lastUpdatedAt = taskContext.getUpdatedAt() != null ? taskContext.getUpdatedAt() : Instant.now();
-
-        long elapsedSeconds = Duration.between(lastUpdatedAt, Instant.now()).getSeconds();
-
-        // 没超时：说明是真的有其他节点/线程在并行跑该任务，抛异常拦截
-        if (elapsedSeconds < zombieTimeoutSeconds) {
-            throw new TaskAlreadyExistsException(
-                    String.format("任务 [%s] 正在运行中（上次更新于 %d 秒前），请勿重复提交", taskId, elapsedSeconds)
-            );
-        }
-
-        // 已超时：判定为上一次运行环境挂掉/僵尸任务，强制标记为 FAILED 准备接管
-        log.warn("⚠️ 检测到僵尸任务 [{}]（RUNNING 状态且超过 {} 秒未更新），判定为节点宕机崩塌，将其转换为 FAILED 状态以备重试。",
-                taskId, zombieTimeoutSeconds);
-
-        taskContext.setStatus(TaskStatus.FAILED);
-    }
-
-    /**
      * 包装返回值
      */
     private Object buildResult(Object result, Class<?> returnType, TaskContext taskContext) {
         if (AgentWorkflowResult.class.isAssignableFrom(returnType)) {
-            // 说明 result 绝对是 AgentWorkflowResult 类型（若非 null）
             if (result instanceof AgentWorkflowResult<?> workflowResult) {
                 workflowResult.setTaskId(taskContext.getTaskId());
                 workflowResult.setTaskStatus(taskContext.getStatus().name());
             } else if (result == null) {
-                // 防御业务方法显式 return null 的情况：自动创建一个带 taskId 的空容器
                 AgentWorkflowResult<Object> emptyResult = AgentWorkflowResult.of(null);
                 emptyResult.setTaskId(taskContext.getTaskId());
                 emptyResult.setTaskStatus(taskContext.getStatus().name());

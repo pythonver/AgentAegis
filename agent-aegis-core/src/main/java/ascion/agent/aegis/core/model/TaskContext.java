@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
-// 任务上下文对象
+// workflow 一次运行的实例上下文（Task = 实例侧词汇；Workflow 定义见 starter 注解/Registry）
 @AllArgsConstructor
 @NoArgsConstructor
 @Data
@@ -25,32 +25,35 @@ public class TaskContext {
             .addModule(new JavaTimeModule())
             .build();
 
-    // 任务id
+    // 实例唯一 ID（taskId）
     private String taskId;
 
-    // 任务名称
+    /**
+     * 本实例对应的 workflow 定义键（@AgentWorkflow.name()，空白时为方法名），
+     * 非实例自定义名；与 AgentWorkflowRegistry 键对齐，供恢复反查定义。
+     */
     private String name;
 
-    // 任务状态
+    // 实例状态
     private TaskStatus status;
 
     @Builder.Default
     private Integer retries = 0 ;
 
-    // 任务输入
+    // 实例入参（进入 workflow 入口时的参数快照）
     private String inputPayload;
 
-    // 任务输出
+    // 实例出参
     private String outputPayload;
 
-    // 任务元数据
+    // 实例元数据
     private String metadata;
 
-    // 任务创建时间
+    // 实例创建时间
     @Builder.Default
     private Instant createdAt = Instant.now();
 
-    // 任务最后更新时间
+    // 实例最后更新时间
     @Builder.Default
     private Instant updatedAt = Instant.now();
 

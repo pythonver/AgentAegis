@@ -8,7 +8,8 @@ import java.io.Serial;
 import java.io.Serializable;
 
 /**
- * Aegis Agent 工作流方法的统一响应包装类
+ * 调用 workflow 入口（定义侧）得到的统一响应包装：
+ * 类名用 Workflow 表示「调用了哪个入口」；taskId/taskStatus 为本次运行实例（Task）信息。
  *
  * @param <T> 业务真实返回的数据类型
  */
@@ -21,12 +22,12 @@ public class AgentWorkflowResult<T> implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * Aegis 框架自动注入的任务唯一 ID
+     * 本次运行实例的唯一 ID（Task 实例侧）
      */
     private String taskId;
 
     /**
-     * 任务执行状态 (如 SUCCESS, FAILED, RUNNING)
+     * 本次运行实例状态 (如 SUCCESS, FAILED, RUNNING)
      */
     private String taskStatus;
 

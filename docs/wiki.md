@@ -162,20 +162,30 @@ mvn -pl agent-aegis-core,agent-aegis-spring-boot-starter -am test
 ## 3. `@AgentWorkflow` — 工作流入口
 
 **切面**：`AgentWorkflowAspect`  
-**职责**：任务创建/查重、线程上下文绑定、成功/失败落库、SUCCESS 冲突策略、僵尸任务接管。
+**职责**：单次 workflow 执行生命周期（taskId 认领 → 绑上下文 → RUNNING 落库 → 执行 → 终态落库 → 清上下文）+ **仅 SUCCESS 再入策略**（REPLAY / THROW）。僵尸判定与后台清扫不在切面职责内（预留定时任务后置）；workflow 级重试次数上限已移除（执行内重试见 `@AgentRetry`）。
 
 ### 3.1 属性
 
 | 属性 | 默认 | 说明 |
 |------|------|------|
-| `name` | `""` | 任务名；空白则用方法名 |
-| `conflictStrategy` | `REPLAY` | 同 `taskId` 已 **SUCCESS** 时：`REPLAY` 反序列化上次结果返回；`THROW_EXCEPTION` 抛 `TaskAlreadyExistsException` |
-| `maxRetries` | `3` | 任务已为 **FAILED** 时允许的最大重试次数（超过抛 `MaxRetriesExceededException`） |
-| `zombieTimeoutSeconds` | `300` | **RUNNING** 且超过该秒数未更新 → 判定僵尸，强制改 **FAILED** 再尝试重试 |
+| `name` | `""` | **workflow 定义键**（写入 `TaskContext.name`，与 Registry 对齐）；空白则用方法名 |
+| `conflictStrategy` | `REPLAY` | 同 `taskId` 已 **SUCCESS** 时：`REPLAY` 反序列化上次结果返回（**不落库**）；`THROW_EXCEPTION` 抛 `TaskAlreadyExistsException` |
+| `zombieTimeoutSeconds` | `300` | **仅供后续后台清扫任务**（预留）；切面不读取、不做僵尸接管 |
 | `ignoreOutput` | `false` | 成功时不写 `outputPayload` |
-| `failFast` | `true` | **注解已声明，当前实现未接入**（Step 失败靠异常上抛使任务 FAILED） |
+| `failFast` | `true` | **注解已声明，当前实现未接入**（Step 失败靠异常上抛使实例 FAILED） |
 
 `ConflictStrategy.REPLAY` 与 `ignoreOutput=true` **不能同时使用**（入口即抛 `IllegalArgumentException`）。
+
+### 3.1.1 定义键 ↔ 实例 name（术语边界）
+
+| 侧 | 词汇 | 含义 |
+|----|------|------|
+| **Workflow（定义）** | `@AgentWorkflow.name`、Registry 键、`WorkflowDescription` | 静态入口；扫描注册 |
+| **Task（实例）** | `taskId`、`TaskContext`、`TaskStatus`、表 `*_task` | 一次运行：状态/重试/出入参 |
+
+**唯一约定的 JOIN**：定义键写入实例 `TaskContext.name`（表列 `name`），恢复时用 `task.name` 反查 Registry。  
+`AgentWorkflowResult` 类名属调用的 workflow 入口，字段 `taskId`/`taskStatus` 属本次运行实例。  
+冲突异常分侧：`DuplicateWorkflowException` = 定义同名；`TaskAlreadyExistsException` = 实例冲突。
 
 ### 3.2 生命周期（单次执行）
 
@@ -183,7 +193,7 @@ mvn -pl agent-aegis-core,agent-aegis-spring-boot-starter -am test
 进入方法
   → 校验配置
   → 解析/生成 taskId（优先 ThreadLocal 中已有 id，否则 task_UUID）
-  → 查库：SUCCESS → REPLAY 或抛异常；RUNNING → 拦截或僵尸接管；FAILED → 重试计数
+  → 查库：SUCCESS → REPLAY（不落库）或 THROW 拒绝；PAUSED → 显式拒绝；RUNNING/FAILED → 按重跑覆盖更新
   → TaskContextHolder.setContext + saveTask(RUNNING)
   → 执行业务体（内部可调 @AgentStep）
   → 成功：saveTask(SUCCESS)，必要时包装 AgentWorkflowResult
@@ -394,7 +404,7 @@ boolean   isRetryable(Throwable t, Set<Class<? extends Throwable>> retryFor,
 | Step/Workflow 方法须为 **public + 经代理** | Spring AOP 限制 |
 | 避免同类 `this.xxx()` | 自调用不进切面 |
 | Step 应在 Workflow 体内（或已有 context） | 否则无 `taskId` |
-| **不要**在 Step 内再调另一个 `@AgentWorkflow` 且期望「子任务」 | 当前会复用父 `taskId` → 易 `TaskAlreadyExistsException`（见已知限制） |
+| **不要**在 Step 内再调另一个 `@AgentWorkflow` 且期望「子 workflow 运行实例」 | 当前会复用父 `taskId` → 易 `TaskAlreadyExistsException`（见已知限制） |
 | 同一方法同时标 `@AgentWorkflow` + `@AgentStep` | Step Order 更靠外，可能在 context 绑定前读到空 id；不推荐 |
 
 ### 7.3 Retry 放置
@@ -406,14 +416,14 @@ boolean   isRetryable(Throwable t, Set<Class<? extends Throwable>> retryFor,
 
 ## 8. 状态、异常与数据表
 
-### 8.1 任务 `TaskStatus`
+### 8.1 运行实例 `TaskStatus`
 
 | 状态 | 含义 |
 |------|------|
-| `RUNNING` | 执行中；超时未更新可被僵尸判定 |
+| `RUNNING` | 执行中；超时未更新可由**后续后台清扫**判定僵尸（切面不接管） |
 | `SUCCESS` | 成功 |
-| `FAILED` | 失败；在 `maxRetries` 内可再入重试 |
-| `PAUSED` | 预留（HITL），分支暂未实现 |
+| `FAILED` | 失败；再次进入按**重跑**覆盖更新（无次数上限） |
+| `PAUSED` | 预留（HITL）；切面**显式拒绝**进入执行 |
 
 ### 8.2 步骤 `StepStatus`
 
@@ -424,8 +434,8 @@ boolean   isRetryable(Throwable t, Set<Class<? extends Throwable>> retryFor,
 | 异常 | 模块 | 场景 |
 |------|------|------|
 | `AgentRetryExhaustedException` | core | Retry 打满；`getCause()` 为原异常 |
-| `TaskAlreadyExistsException` | starter | SUCCESS 且策略为 THROW；或 RUNNING 未超时重复提交 |
-| `MaxRetriesExceededException` | starter | FAILED 任务重试次数已达 `maxRetries` |
+| `TaskAlreadyExistsException` | starter | SUCCESS 且策略为 THROW |
+| `IllegalStateException` | starter | PAUSED 再入（预留状态，拒绝执行） |
 | `IllegalArgumentException` | starter | `REPLAY` + `ignoreOutput=true` |
 | `TimeoutException` | starter | `@AgentStep` 超时 |
 
@@ -446,7 +456,9 @@ boolean   isRetryable(Throwable t, Set<Class<? extends Throwable>> retryFor,
 3. **`@AgentWorkflow` 的 SpEL `taskId` 未实现**（当前仅 ThreadLocal 复用或生成 UUID）。  
 4. **同方法双注解**（Workflow+Step）顺序不理想，勿依赖。  
 5. **自调用** 需代理；诊断日志见 `SelfInvocationDiagnosisUtil`。  
-6. **`PAUSED` / HITL** 仅有枚举与空分支，未完整实现。
+6. **`PAUSED` / HITL** 仅有枚举与切面拒绝分支，恢复/继续执行未完整实现。  
+7. **已知缺陷：同一 taskId 并发再入**（双线程同时进入 RUNNING/FAILED 重跑）无乐观锁，可能互相覆盖落库；后续引入乐观锁与分布式认领（AEGIC-23）。  
+8. **僵尸清扫 / 后台恢复顺序** 尚未落地（`zombieTimeoutSeconds`、`RecoveryOrder` 为预留）。
 
 ---
 

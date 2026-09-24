@@ -25,7 +25,7 @@ public class E2eLinearWorkflowService {
     /**
      * step_one 成功后 always_fail 耗尽失败 → 后续 step 不应执行，任务 FAILED。
      */
-    @AgentWorkflow(name = "e2e-fail", maxRetries = 1, conflictStrategy = AgentWorkflow.ConflictStrategy.THROW_EXCEPTION)
+    @AgentWorkflow(name = "e2e-fail", conflictStrategy = AgentWorkflow.ConflictStrategy.THROW_EXCEPTION)
     public AgentWorkflowResult<String> runFailing(String input) {
         String one = steps.stepOne(input);
         steps.alwaysFailStep(one);

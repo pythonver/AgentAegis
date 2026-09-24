@@ -5,7 +5,6 @@ import ascion.agent.aegis.core.model.TaskStatus;
 import ascion.agent.aegis.core.repository.CheckpointRepository;
 import ascion.agent.aegis.spring.boot.starter.config.AgentAegisAutoConfiguration;
 import ascion.agent.aegis.spring.boot.starter.context.TaskContextHolder;
-import ascion.agent.aegis.spring.boot.starter.exception.MaxRetriesExceededException;
 import ascion.agent.aegis.spring.boot.starter.exception.TaskAlreadyExistsException;
 import ascion.agent.aegis.spring.boot.starter.result.AgentWorkflowResult;
 import ascion.agent.aegis.spring.boot.starter.service.TestWorkflowService;
@@ -35,20 +34,17 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ol>
  *   <li>配置校验：REPLAY + ignoreOutput=true → IllegalArgumentException</li>
  *   <li>getTaskId：ThreadLocal 有 id / 无 id / id 为空白 → 复用或生成</li>
- *   <li>getTaskName：name 为空白 → 方法名；否则 → 注解 name</li>
+ *   <li>resolveWorkflowKey：name 为空白 → 方法名；否则 → 注解 name（写入 TaskContext.name）</li>
  *   <li>已存在任务：name 空白回填 / 非空白保留</li>
- *   <li>SUCCESS：REPLAY 反序列化 / void / payload 空 / THROW_EXCEPTION 抛异常</li>
- *   <li>RUNNING：未超时拦截 / updatedAt==null / 僵尸任务转 FAILED 后重试</li>
- *   <li>FAILED：达到 maxRetries 上限 / 未达上限自增重试</li>
- *   <li>PAUSED：空分支直落执行</li>
+ *   <li>SUCCESS：REPLAY 反序列化（不落库）/ void / payload 空 / THROW_EXCEPTION 抛异常</li>
+ *   <li>RUNNING：按重跑覆盖更新（无僵尸接管）</li>
+ *   <li>FAILED：按重跑覆盖更新（无次数上限）</li>
+ *   <li>PAUSED：显式拒绝进入执行</li>
  *   <li>全新任务初始化（else 分支）</li>
  *   <li>proceedDirectly：成功落库 / ignoreOutput 置空 / 结果为 null / 异常置 FAILED 后重抛</li>
  *   <li>buildResult：AWR 实例回填 / null 容器兜底 / 非 AWR 原样返回</li>
  *   <li>finally：TaskContextHolder.clear()</li>
  * </ol>
- *
- * <p>说明：handleSuccessTask 中 {@code agentWorkflow.ignoreOutput()} 分支为死代码——
- * 入口配置校验已拦截 REPLAY + ignoreOutput=true，无法通过公开调用抵达。
  */
 @SpringBootTest(classes = AgentWorkflowAspectTest.TestApplication.class)
 @ActiveProfiles("test")
@@ -129,10 +125,10 @@ class AgentWorkflowAspectTest {
         }
     }
 
-    // ==================== 2. taskId / taskName 生成分支 ====================
+    // ==================== 2. taskId / workflow 定义键 生成分支 ====================
 
     @Nested
-    @DisplayName("分支2：taskId 与 taskName 解析")
+    @DisplayName("分支2：taskId 与 workflow 定义键（TaskContext.name）解析")
     class IdAndNameResolution {
 
         @Test
@@ -172,7 +168,7 @@ class AgentWorkflowAspectTest {
         }
 
         @Test
-        @DisplayName("name 空白 → 回填为方法名（FAILED 重试落库时可见）")
+        @DisplayName("name 空白 → 回填为方法名（FAILED 重跑落库时可见）")
         void blankNameFallbackToMethodName() {
             String taskId = "task_name_blank_001";
             useTaskId(taskId);
@@ -242,20 +238,32 @@ class AgentWorkflowAspectTest {
         }
 
         @Test
-        @DisplayName("REPLAY + 有 outputPayload → 反序列化还原并回填 taskId/taskStatus")
+        @DisplayName("REPLAY + 有 outputPayload → 反序列化还原并回填 taskId/taskStatus（不落库）")
         void replayDeserializesPayload() throws Exception {
             AgentWorkflowResult<String> payload = AgentWorkflowResult.of("cached-value");
             payload.setTaskId(TASK_ID);
             payload.setTaskStatus(TaskStatus.SUCCESS.name());
             String json = SerializeUtil.getMapper().writeValueAsString(payload);
-            seedSuccess("named-workflow", json);
+            Instant before = Instant.now().minusSeconds(60);
+            useTaskId(TASK_ID);
+            seed(TaskContext.builder()
+                    .taskId(TASK_ID)
+                    .name("named-workflow")
+                    .status(TaskStatus.SUCCESS)
+                    .outputPayload(json)
+                    .retries(0)
+                    .createdAt(before)
+                    .updatedAt(before)
+                    .build());
 
             AgentWorkflowResult<String> result = testWorkflowService.processWithResult("ignored-arg");
 
             assertEquals(TASK_ID, result.getTaskId());
             assertEquals("SUCCESS", result.getTaskStatus());
             assertEquals("cached-value", result.getData());
-            assertEquals(TaskStatus.SUCCESS, requireTask(TASK_ID).getStatus());
+            TaskContext saved = requireTask(TASK_ID);
+            assertEquals(TaskStatus.SUCCESS, saved.getStatus());
+            assertEquals(before, saved.getUpdatedAt(), "REPLAY 回放不应落库更新 updatedAt");
         }
 
         @Test
@@ -332,8 +340,6 @@ class AgentWorkflowAspectTest {
             String json = SerializeUtil.getMapper().writeValueAsString(payload);
             seedSuccess("", json);
 
-            // REPLAY 命中 SUCCESS 分支；name 回填发生在状态判断之前（内存对象上）
-            // 通过再次读取无法看到未 save 的内存回填，故验证调用不抛异常且回放成功
             AgentWorkflowResult<String> result = testWorkflowService.processWithResult("x");
             assertEquals("v", result.getData());
         }
@@ -342,100 +348,62 @@ class AgentWorkflowAspectTest {
     // ==================== 4. RUNNING 分支 ====================
 
     @Nested
-    @DisplayName("分支4：已存在 RUNNING 任务")
+    @DisplayName("分支4：已存在 RUNNING 任务（按重跑覆盖更新）")
     class RunningTask {
 
         @Test
-        @DisplayName("RUNNING 未超时（updatedAt 刚刚）→ TaskAlreadyExistsException 拦截")
-        void runningNotTimeoutRejects() {
+        @DisplayName("RUNNING → 按重跑执行，覆盖更新为 SUCCESS，body 实际执行")
+        void runningRerunsAndOverwrites() {
             String taskId = "task_running_live_001";
             useTaskId(taskId);
+            Instant old = Instant.now().minusSeconds(5);
             seed(TaskContext.builder()
                     .taskId(taskId)
                     .name("processRaw")
+                    .status(TaskStatus.RUNNING)
+                    .createdAt(old)
+                    .updatedAt(old)
+                    .retries(0)
+                    .build());
+
+            String result = testWorkflowService.processRaw("x");
+
+            assertEquals("raw: x", result);
+            TaskContext saved = requireTask(taskId);
+            assertEquals(TaskStatus.SUCCESS, saved.getStatus(), "RUNNING 重跑成功后应覆盖为 SUCCESS");
+            assertTrue(saved.getInputPayload().contains("\"x\""), "重跑应刷新 inputPayload");
+        }
+
+        @Test
+        @DisplayName("RUNNING 且业务失败 → 覆盖更新为 FAILED 原样抛出")
+        void runningRerunFailurePersistsFailed() {
+            String taskId = "task_running_fail_001";
+            useTaskId(taskId);
+            seed(TaskContext.builder()
+                    .taskId(taskId)
+                    .name("processAlwaysFail")
                     .status(TaskStatus.RUNNING)
                     .createdAt(Instant.now())
                     .updatedAt(Instant.now())
                     .retries(0)
                     .build());
 
-            assertThrows(TaskAlreadyExistsException.class,
-                    () -> testWorkflowService.processRaw("x"));
-            assertEquals(TaskStatus.RUNNING, requireTask(taskId).getStatus(),
-                    "拦截路径不应改写状态");
-        }
-
-        @Test
-        @DisplayName("RUNNING 且 updatedAt 早于当前 → 仍按 zombieTimeout 判定；未超时则拦截")
-        void runningWithOlderTimestampStillWithinTimeout() {
-            // processRaw 默认 zombieTimeoutSeconds=300；1 秒前更新视为未超时
-            String taskId = "task_running_recent_001";
-            useTaskId(taskId);
-            seed(TaskContext.builder()
-                    .taskId(taskId)
-                    .name("processRaw")
-                    .status(TaskStatus.RUNNING)
-                    .createdAt(Instant.now().minusSeconds(2))
-                    .updatedAt(Instant.now().minusSeconds(1))
-                    .retries(0)
-                    .build());
-
-            assertThrows(TaskAlreadyExistsException.class,
-                    () -> testWorkflowService.processRaw("x"));
-        }
-
-        @Test
-        @DisplayName("RUNNING 超过 zombieTimeoutSeconds → 僵尸任务转 FAILED 并接管重试成功")
-        void zombieRunningTakenOverAndRetried() {
-            String taskId = "task_zombie_001";
-            useTaskId(taskId);
-            seed(TaskContext.builder()
-                    .taskId(taskId)
-                    .name("processZombieTakeover")
-                    .status(TaskStatus.RUNNING)
-                    .createdAt(Instant.now().minusSeconds(120))
-                    .updatedAt(Instant.now().minusSeconds(60))
-                    .retries(0)
-                    .build());
-
-            String result = testWorkflowService.processZombieTakeover("payload");
-
-            assertEquals("took-over: payload", result);
-            TaskContext saved = requireTask(taskId);
-            assertEquals(TaskStatus.SUCCESS, saved.getStatus());
-            assertEquals(1, saved.getRetries(), "僵尸接管后应沿 FAILED 分支完成一次重试自增");
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> testWorkflowService.processAlwaysFail("x"));
+            assertEquals("Biz Error", ex.getMessage());
+            assertEquals(TaskStatus.FAILED, requireTask(taskId).getStatus());
         }
     }
 
     // ==================== 5. FAILED 分支 ====================
 
     @Nested
-    @DisplayName("分支5：已存在 FAILED 任务（重试策略）")
+    @DisplayName("分支5：已存在 FAILED 任务（按重跑，无次数上限）")
     class FailedTask {
 
         @Test
-        @DisplayName("retries >= maxRetries → MaxRetriesExceededException")
-        void maxRetriesExceeded() {
-            String taskId = "task_failed_max_001";
-            useTaskId(taskId);
-            // processAlwaysFail 注解 maxRetries=2，种子 retries=2 已达上限
-            seed(TaskContext.builder()
-                    .taskId(taskId)
-                    .name("processAlwaysFail")
-                    .status(TaskStatus.FAILED)
-                    .retries(2)
-                    .createdAt(Instant.now())
-                    .updatedAt(Instant.now())
-                    .build());
-
-            assertThrows(MaxRetriesExceededException.class,
-                    () -> testWorkflowService.processAlwaysFail("x"));
-            assertEquals(2, requireTask(taskId).getRetries(), "达上限时不应再自增");
-        }
-
-        @Test
-        @DisplayName("retries < maxRetries → 自增 retries 后重新执行")
-        void retryAllowedIncrementsAndRuns() {
+        @DisplayName("FAILED → 直接重跑成功，覆盖更新且不自增 retries")
+        void failedRerunsWithoutRetryCounting() {
             String taskId = "task_failed_retry_001";
             useTaskId(taskId);
             seed(TaskContext.builder()
@@ -451,13 +419,35 @@ class AgentWorkflowAspectTest {
 
             assertEquals("SUCCESS", result.getTaskStatus());
             TaskContext saved = requireTask(taskId);
-            assertEquals(1, saved.getRetries(), "允许重试时 retries 应从 0 自增为 1");
+            assertEquals(0, saved.getRetries(), "workflow 级重跑不自增 retries");
             assertEquals(TaskStatus.SUCCESS, saved.getStatus());
         }
 
         @Test
+        @DisplayName("retries 已为任意值 → 仍可重跑（无 maxRetries 上限）")
+        void failedWithHighRetriesStillReruns() {
+            String taskId = "task_failed_max_001";
+            useTaskId(taskId);
+            seed(TaskContext.builder()
+                    .taskId(taskId)
+                    .name("processRaw")
+                    .status(TaskStatus.FAILED)
+                    .retries(99)
+                    .createdAt(Instant.now())
+                    .updatedAt(Instant.now())
+                    .build());
+
+            String result = testWorkflowService.processRaw("x");
+
+            assertEquals("raw: x", result);
+            TaskContext saved = requireTask(taskId);
+            assertEquals(TaskStatus.SUCCESS, saved.getStatus());
+            assertEquals(99, saved.getRetries(), "重跑不改写历史 retries 值");
+        }
+
+        @Test
         @DisplayName("业务执行仍失败 → 状态再次落库为 FAILED 并原样抛出")
-        void retryStillFailsPersistsFailed() {
+        void failedRerunStillFailsPersistsFailed() {
             String taskId = "task_failed_twice_001";
             useTaskId(taskId);
             seed(TaskContext.builder()
@@ -475,19 +465,19 @@ class AgentWorkflowAspectTest {
 
             TaskContext saved = requireTask(taskId);
             assertEquals(TaskStatus.FAILED, saved.getStatus());
-            assertEquals(1, saved.getRetries());
+            assertEquals(0, saved.getRetries());
         }
     }
 
     // ==================== 6. PAUSED 分支 ====================
 
     @Nested
-    @DisplayName("分支6：PAUSED 状态（HITL 预留空实现）")
+    @DisplayName("分支6：PAUSED 状态（预留状态显式拒绝）")
     class PausedTask {
 
         @Test
-        @DisplayName("PAUSED → 空 if 分支直落执行，状态置回 RUNNING 后正常完成")
-        void pausedFallsThroughToExecution() {
+        @DisplayName("PAUSED → IllegalStateException 拒绝进入执行，状态保持 PAUSED")
+        void pausedRejectsWithException() {
             String taskId = "task_paused_001";
             useTaskId(taskId);
             seed(TaskContext.builder()
@@ -499,11 +489,13 @@ class AgentWorkflowAspectTest {
                     .updatedAt(Instant.now())
                     .build());
 
-            AgentWorkflowResult<String> result = testWorkflowService.processWithResult("x");
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> testWorkflowService.processWithResult("x"));
 
-            assertEquals("SUCCESS", result.getTaskStatus());
-            assertEquals(TaskStatus.SUCCESS, requireTask(taskId).getStatus(),
-                    "PAUSED 应继续执行直至终态");
+            assertTrue(ex.getMessage().contains(taskId), "异常信息应包含 taskId");
+            assertTrue(ex.getMessage().contains("PAUSED"), "异常信息应说明 PAUSED 原因");
+            assertEquals(TaskStatus.PAUSED, requireTask(taskId).getStatus(),
+                    "拒绝路径不应改写状态");
         }
     }
 
@@ -610,21 +602,21 @@ class AgentWorkflowAspectTest {
         }
 
         @Test
-        @DisplayName("拦截异常路径（TaskAlreadyExists）后上下文仍被清理")
+        @DisplayName("拦截异常路径（PAUSED 拒绝）后上下文仍被清理")
         void clearedAfterRejectedException() {
             String taskId = "task_cleanup_reject_001";
             useTaskId(taskId);
             seed(TaskContext.builder()
                     .taskId(taskId)
-                    .name("processRaw")
-                    .status(TaskStatus.RUNNING)
+                    .name("named-workflow")
+                    .status(TaskStatus.PAUSED)
                     .createdAt(Instant.now())
                     .updatedAt(Instant.now())
                     .retries(0)
                     .build());
 
-            assertThrows(TaskAlreadyExistsException.class,
-                    () -> testWorkflowService.processRaw("x"));
+            assertThrows(IllegalStateException.class,
+                    () -> testWorkflowService.processWithResult("x"));
 
             assertNull(TaskContextHolder.getContext());
         }

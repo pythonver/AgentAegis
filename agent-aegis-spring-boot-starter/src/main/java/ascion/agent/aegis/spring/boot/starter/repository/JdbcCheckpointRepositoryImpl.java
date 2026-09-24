@@ -175,4 +175,11 @@ public class JdbcCheckpointRepositoryImpl implements CheckpointRepository {
                 "FROM agent_guardian_checkpoint WHERE task_id = ? ORDER BY created_at";
         return jdbcTemplate.query(sql, checkpointRowMapper, taskId);
     }
+
+    @Override
+    public List<TaskContext> getTasksByStatus(TaskStatus status) {
+        String sql = "SELECT task_id, name, status, input_payload, output_payload, retries, metadata_json, created_at, updated_at FROM agent_guardian_task WHERE status = ?";
+
+        return jdbcTemplate.query(sql, taskContextRowMapper, status);
+    }
 }
