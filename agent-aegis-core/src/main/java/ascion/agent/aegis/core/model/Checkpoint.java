@@ -33,7 +33,7 @@ public class Checkpoint {
     private String exceptionStack;
 
     // 步骤执行时长
-    private long executionTime;
+    private long executionTimeMs;
 
     @Builder.Default
     private Instant createdAt = Instant.now();

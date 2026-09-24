@@ -60,7 +60,7 @@ public class JdbcCheckpointRepositoryImpl implements CheckpointRepository {
                 .inputPayload(rs.getString("input_payload"))
                 .outputPayload(rs.getString("output_payload"))
                 .exceptionStack(rs.getString("exception_stack"))
-                .executionTime(rs.getLong("execution_time_ms"))
+                .executionTimeMs(rs.getLong("execution_time_ms"))
                 .build();
 
         Timestamp createdAt = rs.getTimestamp("created_at");
@@ -134,7 +134,7 @@ public class JdbcCheckpointRepositoryImpl implements CheckpointRepository {
                     checkpoint.getInputPayload(),
                     checkpoint.getOutputPayload(),
                     checkpoint.getExceptionStack(),
-                    checkpoint.getExecutionTime(),
+                    checkpoint.getExecutionTimeMs(),
                     Timestamp.from(checkpoint.getUpdatedAt()),
                     checkpoint.getTaskId(),
                     checkpoint.getStepName());
@@ -149,7 +149,7 @@ public class JdbcCheckpointRepositoryImpl implements CheckpointRepository {
                     checkpoint.getInputPayload(),
                     checkpoint.getOutputPayload(),
                     checkpoint.getExceptionStack(),
-                    checkpoint.getExecutionTime(),
+                    checkpoint.getExecutionTimeMs(),
                     Timestamp.from(checkpoint.getCreatedAt()),
                     Timestamp.from(checkpoint.getUpdatedAt()));
         }

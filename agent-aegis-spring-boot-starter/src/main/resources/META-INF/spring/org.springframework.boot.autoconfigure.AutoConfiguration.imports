@@ -1,1 +1,2 @@
 ascion.agent.aegis.spring.boot.starter.config.AgentAegisAutoConfiguration
+ascion.agent.aegis.spring.boot.starter.config.AgentAegisJdbcConfiguration

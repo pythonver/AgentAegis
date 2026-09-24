@@ -125,7 +125,7 @@ public class AgentStepAspect {
             } else {
                 build.setOutputPayload(result != null ? SerializeUtil.getMapper().writeValueAsString(result) : null);
             }
-            build.setExecutionTime(Duration.between(start, end).toMillis());
+            build.setExecutionTimeMs(Duration.between(start, end).toMillis());
             checkpointRepository.saveCheckpoint(build);
             return result;
         } catch (Throwable e) {
@@ -161,7 +161,7 @@ public class AgentStepAspect {
                 } else {
                     build.setOutputPayload(result != null ? SerializeUtil.getMapper().writeValueAsString(result) : null);
                 }
-                build.setExecutionTime(Duration.between(start, end).toMillis());
+                build.setExecutionTimeMs(Duration.between(start, end).toMillis());
 
                 // 只有在未超时的情况下才允许落库 SUCCESS 状态
                 checkpointRepository.saveCheckpoint(build);

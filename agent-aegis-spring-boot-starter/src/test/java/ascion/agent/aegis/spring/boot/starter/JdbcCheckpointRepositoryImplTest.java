@@ -109,7 +109,7 @@ class JdbcCheckpointRepositoryImplTest {
         // 3. 对相同的 (task_id, step_name) 再次保存（更新 Step 1 的状态和出参）
         step1.setStatus(StepStatus.SUCCESS);
         step1.setOutputPayload("{\"result\":\"ok\"}");
-        step1.setExecutionTime(150L);
+        step1.setExecutionTimeMs(150L);
         repository.saveCheckpoint(step1);
 
         // 4. 验证数量依然是 2，且 Step 1 的内容被成功覆盖更新
@@ -120,7 +120,7 @@ class JdbcCheckpointRepositoryImplTest {
         assertThat(foundStep1).isPresent();
         assertThat(foundStep1.get().getStatus()).isEqualTo(StepStatus.SUCCESS);
         assertThat(foundStep1.get().getOutputPayload()).isEqualTo("{\"result\":\"ok\"}");
-        assertThat(foundStep1.get().getExecutionTime()).isEqualTo(150L);
+        assertThat(foundStep1.get().getExecutionTimeMs()).isEqualTo(150L);
     }
 
     @Test
